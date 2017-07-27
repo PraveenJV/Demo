@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:sfdc="http://www.mulesoft.org/schema/mule/sfdc"
+	xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:spring="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/sfdc http://www.mulesoft.org/schema/mule/sfdc/current/mule-sfdc.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/apikit http://www.mulesoft.org/schema/mule/apikit/current/mule-apikit.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.1.xsd">
+	<http:listener-config name="system-api-httpListenerConfig"
+		host="0.0.0.0" port="8082" doc:name="HTTP Listener Configuration" />
+	<apikit:config name="system-api-config" raml="system-api.raml"
+		consoleEnabled="false" doc:name="Router" />
+	<sfdc:config name="Salesforce__Basic_Authentication"
+		username="praveenvj08@gmail.com" password="9242205173P.vj"
+		securityToken="mhtYeVbKpipVTqdJPeWRJu74" doc:name="Salesforce: Basic Authentication" />
+	<flow name="system-api-main">
+		<http:listener config-ref="system-api-httpListenerConfig"
+			path="/api/*" doc:name="HTTP" />
+		<apikit:router config-ref="system-api-config" doc:name="APIkit Router" />
+		<exception-strategy ref="system-api-apiKitGlobalExceptionMapping"
+			doc:name="Reference Exception Strategy" />
+	</flow>
+	<flow name="system-api-console">
+		<http:listener config-ref="system-api-httpListenerConfig"
+			path="/console/*" doc:name="HTTP" />
+		<apikit:console config-ref="system-api-config"
+			doc:name="APIkit Console" />
+	</flow>
+	<flow name="put:/accounts/{id}:application/json:system-api-config"> 
+		<set-payload value="{&#xA; &quot;status&quot;: &quot;OK&quot;&#xA;}" doc:name="Set 
+		Payload"/> </flow>
+	<flow name="post:/accounts:application/json:system-api-config">
+		<set-property propertyName="Content-Type" value="application/json"
+			doc:name="Set Content Type" />
+		<dw:transform-message doc:name="Map input to Salesforce Account">
+            <dw:input-payload doc:sample="sample_data\json.json"/>
+			<dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+{
+	Name               : payload.name,
+	BillingStreet      : payload.billingAddress.street,
+	BillingCity        : payload.billingAddress.city,
+	BillingState       : payload.billingAddress.state,
+	BillingPostalCode  : payload.billingAddress.postalCode,
+	BillingCountry     : payload.billingAddress.country,
+	ShippingStreet     : payload.shippingAddress.street,
+	ShippingCity       : payload.shippingAddress.city,
+	ShippingState      : payload.shippingAddress.state,
+	ShippingPostalCode : payload.shippingAddress.postalCode,
+	ShippingCountry    : payload.shippingAddress.country,
+	Phone              : payload.phone
+}]]></dw:set-payload>
+		</dw:transform-message>
+		<sfdc:create-single config-ref="Salesforce__Basic_Authentication"
+			type="Account" doc:name="Create New Account">
+			<sfdc:object ref="#[payload]" />
+		</sfdc:create-single>
+        <logger message="#[payload]" level="INFO" doc:name="Logger"/>
+		<choice doc:name="Successful?">
+			<when expression="#[payload.success == true]">
+                <sfdc:query-single config-ref="Salesforce__Basic_Authentication" query="dsql:SELECT Name, Id FROM Account WHERE Id='#[payload.id]'" doc:name="Get Account Detail"/>
+
+				<set-property propertyName="location"
+					value="#[ 'http://' + '${api.domain}' + ':' + '${http.port}' + '${api.basePath}' + '/accounts/' + payload.Id ]"
+					doc:name="set Location Header" />
+				<dw:transform-message doc:name="SFDC Account Detail to JSON">
+					<dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	id: payload.Id,
+	name: payload.Name
+}]]></dw:set-payload>
+				</dw:transform-message>
+			</when>
+			<otherwise>
+				<set-property propertyName="http.status" value="#[400]"
+					doc:name="Bad Request" />
+				<set-payload
+					value="{ &quot;message&quot;: &quot;Failed to create new Account&quot; }"
+					doc:name="Set Payload" />
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="delete:/accounts/{id}:system-api-config">
+		<set-payload value="{&#xA;  &quot;status&quot;: &quot;OK&quot;&#xA;}"
+			doc:name="Set Payload" />
+	</flow>
+	<!-- <flow name="get:/accounts/{id}:system-api-config"> <set-payload value="{&#xA; 
+		&quot;id&quot;: &quot;0012000001ZbRgPAAV&quot;,&#xA; &quot;nativeId&quot;: 
+		&quot;&quot;,&#xA; &quot;name&quot;: &quot;Jason Bourne&quot;,&#xA; &quot;phone&quot;: 
+		&quot;1-(318)596-8473&quot;,&#xA; &quot;email&quot;: &quot;test@example.com&quot;,&#xA; 
+		&quot;createdDate&quot; : &quot;2016-03-24T15:00:00.000Z&quot;,&#xA; &quot;billingAddress&quot;: 
+		{&#xA; &#x9;&quot;street&quot;: &quot;Pleasure 4598&quot;,&#xA; &#x9;&quot;city&quot;: 
+		&quot;Shreveport&quot;,&#xA; &#x9;&quot;state&quot;: &quot;Louisiana&quot;,&#xA; 
+		&#x9;&quot;postalCode&quot;: &quot;71105&quot;,&#xA; &#x9;&quot;country&quot;: 
+		&quot;United States&quot;&#xA; },&#xA; &quot;shippingAddress&quot;: {&#xA; 
+		&#x9;&quot;street&quot;: &quot;Autumn Leaf 3&quot;,&#xA; &#x9;&quot;city&quot;: 
+		&quot;Jackson&quot;,&#xA; &#x9;&quot;state&quot;: &quot;Mississippi&quot;,&#xA; 
+		&#x9;&quot;postalCode&quot;: &quot;39204&quot;,&#xA; &#x9;&quot;country&quot;: 
+		&quot;United States&quot;&#xA; },&#xA; &quot;lastModifiedDate&quot; : &quot;2016-03-24T15:00:00.000Z&quot;,&#xA; 
+		&quot;lastModifiedById&quot; : &quot;123456&quot;&#xA;}" doc:name="Set Payload"/> 
+		</flow> -->
+	<flow name="get:/accounts/{id}:system-api-config">
+		<sfdc:query config-ref="Salesforce__Basic_Authentication"
+			query="dsql:SELECT Id, Name, BillingStreet, BillingCity, BillingPostalCode, BillingState, BillingCountry, ShippingStreet, ShippingCity, ShippingPostalCode, ShippingState, ShippingCountry, AccountNumber, LastModifiedDate, LastModifiedById FROM Account WHERE Id = '#[message.inboundProperties[&quot;http.uri.params&quot;].id]'"
+			doc:name="Salesforce" />
+		<choice doc:name="Does Account Exist?">
+			<when expression="#[payload != empty]">
+				<dw:transform-message doc:name="Salesforce Account to sAPI Account">
+					<dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	id                  : payload.Id,
+	nativeId            : payload.Id,
+	name                : payload.Name,
+	billingAddress: {
+		street       	: payload.BillingStreet,
+		city         	: payload.BillingCity,
+		state        	: payload.BillingState,
+		postalCode   	: payload.BillingPostalCode,
+		country      	: payload.BillingCountry
+	},
+	shippingAddress: {
+		street      	: payload.ShippingStreet,
+		city        	: payload.ShippingCity,
+		state       	: payload.ShippingState,
+		postalCode  	: payload.ShippingPostalCode,
+		country     	: payload.ShippingCountry
+	},
+	lastModifiedDate    : payload.LastModifiedDate
+}]]></dw:set-payload>
+				</dw:transform-message>
+			</when>
+			<otherwise>
+				<set-property propertyName="http.status" value="#[404]"
+					doc:name="Resource Not Found" />
+				<set-payload
+					value="{ &quot;message&quot;: &quot;Resource not found&quot; }"
+					doc:name="Account not found" />
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="get:/accounts:system-api-config">
+		<set-payload
+			value="[{&#xA;  &quot;id&quot;: &quot;0012000001BaRgPAAV&quot;,&#xA;  &quot;name&quot;: &quot;Michelle Ruiz&quot;,&#xA;  &quot;email&quot;: &quot;mruiz0@qq.com&quot;,&#xA;  &quot;phone&quot;: &quot;1-(951)768-8479&quot;,&#xA;  &quot;billingAddress&quot;: {&#xA;  &#x9;&quot;street&quot;: &quot;Eastlawn 42&quot;,&#xA;  &#x9;&quot;city&quot;: &quot;Riverside&quot;,&#xA;  &#x9;&quot;state&quot;: &quot;California&quot;,&#xA;  &#x9;&quot;postalCode&quot;: &quot;92513&quot;,&#xA;  &#x9;&quot;country&quot;: &quot;United States&quot;&#xA;  },&#xA;  &quot;shippingAddress&quot;: {&#xA;  &#x9;&quot;street&quot;: &quot;South&quot;,&#xA;  &#x9;&quot;street2&quot;: &quot;07&quot;,&#xA;  &#x9;&quot;city&quot;: &quot;Houston&quot;,&#xA;  &#x9;&quot;state&quot;: &quot;Texas&quot;,&#xA;  &#x9;&quot;postalCode&quot;: &quot;77045&quot;,&#xA;  &#x9;&quot;country&quot;: &quot;United States&quot;&#xA;  },&#xA;  &quot;lastModifiedDate&quot;: &quot;2016-04-07T14:00:00.000Z&quot;&#xA;}, {&#xA;  &quot;id&quot;: &quot;0012000001ZsRgPAAV&quot;,&#xA;  &quot;name&quot;: &quot;Jeremy Adams&quot;,&#xA;  &quot;email&quot;: &quot;jadams1@instagram.com&quot;,&#xA;  &quot;phone&quot;: &quot;1-(216)797-9178&quot;,&#xA;  &quot;billingAddress&quot;: {&#xA;  &#x9;&quot;street&quot;: &quot;Eastwood 442&quot;,&#xA;  &#x9;&quot;city&quot;: &quot;Cleveland&quot;,&#xA;  &#x9;&quot;state&quot;: &quot;Ohio&quot;,&#xA;  &#x9;&quot;postalCode&quot;: &quot;44191&quot;,&#xA;  &#x9;&quot;country&quot;: &quot;United States&quot;&#xA;  },&#xA;  &quot;shippingAddress&quot;: {&#xA;  &#x9;&quot;street&quot;: &quot;Menomonie 5&quot;,&#xA;  &#x9;&quot;city&quot;: &quot;South Bend&quot;,&#xA;  &#x9;&quot;state&quot;: &quot;Indiana&quot;,&#xA;  &#x9;&quot;postalCode&quot;: &quot;46614&quot;,&#xA;  &#x9;&quot;country&quot;: &quot;United States&quot;&#xA;  },&#xA;  &quot;lastModifiedDate&quot;: &quot;2016-04-07T14:10:00.000Z&quot;&#xA;}]"
+			doc:name="Set Payload" />
+	</flow>
+	<!-- <flow name="post:/accounts:application/json:system-api-config">
+		<set-property propertyName="Content-Type" value="application/json"
+			doc:name="Property" />
+		<set-payload
+			value="{&#xA;  &quot;id&quot;: &quot;0012000001BaRgPAAV&quot;&#xA;  &quot;name&quot;: &quot;Example Company&quot;&#xA;}"
+			doc:name="Set Payload" />
+	</flow> -->
+	<apikit:mapping-exception-strategy
+		name="system-api-apiKitGlobalExceptionMapping">
+		<apikit:mapping statusCode="404">
+			<apikit:exception
+				value="org.mule.module.apikit.exception.NotFoundException" />
+			<set-property propertyName="Content-Type" value="application/json"
+				doc:name="Property" />
+			<set-payload
+				value="{ &quot;message&quot;: &quot;Resource not found&quot; }"
+				doc:name="Set Payload" />
+		</apikit:mapping>
+		<apikit:mapping statusCode="405">
+			<apikit:exception
+				value="org.mule.module.apikit.exception.MethodNotAllowedException" />
+			<set-property propertyName="Content-Type" value="application/json"
+				doc:name="Property" />
+			<set-payload
+				value="{ &quot;message&quot;: &quot;Method not allowed&quot; }"
+				doc:name="Set Payload" />
+		</apikit:mapping>
+		<apikit:mapping statusCode="415">
+			<apikit:exception
+				value="org.mule.module.apikit.exception.UnsupportedMediaTypeException" />
+			<set-property propertyName="Content-Type" value="application/json"
+				doc:name="Property" />
+			<set-payload
+				value="{ &quot;message&quot;: &quot;Unsupported media type&quot; }"
+				doc:name="Set Payload" />
+		</apikit:mapping>
+		<apikit:mapping statusCode="406">
+			<apikit:exception
+				value="org.mule.module.apikit.exception.NotAcceptableException" />
+			<set-property propertyName="Content-Type" value="application/json"
+				doc:name="Property" />
+			<set-payload value="{ &quot;message&quot;: &quot;Not acceptable&quot; }"
+				doc:name="Set Payload" />
+		</apikit:mapping>
+		<apikit:mapping statusCode="400">
+			<apikit:exception
+				value="org.mule.module.apikit.exception.BadRequestException" />
+			<set-property propertyName="Content-Type" value="application/json"
+				doc:name="Property" />
+			<set-payload value="{ &quot;message&quot;: &quot;Bad request&quot; }"
+				doc:name="Set Payload" />
+		</apikit:mapping>
+	</apikit:mapping-exception-strategy>
+</mule>
